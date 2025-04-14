@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Teacher Dashboard - Grades App{% endblock %}
+
+{% block nav_items %}
+<li class="nav-item">
+    <a class="nav-link" href="{{ url_for('teacher') }}">Dashboard</a>
+</li>
+<li class="nav-item">
+    <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
+</li>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h2>Teacher Dashboard</h2>
+        <p>Welcome, {{ user.name }}!</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col">
+        <div class="card">
+            <div class="card-header">
+                <h4>My Classes</h4>
+            </div>
+            <div class="card-body">
+                {% if classes %}
+                    {% for class in classes %}
+                        <div class="mb-4">
+                            <h5>{{ class.name }}</h5>
+                            <p>{{ class.description }}</p>
+                            <small>{{ class.current_enrollment_count() }}/{{ class.capacity }} students</small>
+                            <h6 class="mt-3">Enrolled Students</h6>
+                            {% set students = class_students[class.id] %}
+                            {% if students %}
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Email</th>
+                                            <th>Grade</th>
+                                            <th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for student in students %}
+                                            <tr>
+                                                <td>{{ student.name }}</td>
+                                                <td>{{ student.email }}</td>
+                                                <td>{{ student.grade or 'Not graded' }}</td>
+                                                <td>
+                                                    <form action="{{ url_for('edit_grade', enrollment_id=student.enrollment_id) }}" method="post">
+                                                        <div class="input-group input-group-sm">
+                                                            <input type="text" class="form-control" name="grade" value="{{ student.grade or '' }}" placeholder="A, B, C, D, F">
+                                                            <button type="submit" class="btn btn-primary">Update</button>
+                                                        </div>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            {% else %}
+                                <p>No students enrolled.</p>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p>You are not teaching any classes.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

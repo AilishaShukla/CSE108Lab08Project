@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard - Grades App{% endblock %}
+
+{% block nav_items %}
+<li class="nav-item">
+    <a class="nav-link" href="{{ url_for('admin') }}">Dashboard</a>
+</li>
+<li class="nav-item">
+    <a class="nav-link" href="/admin">Manage Data</a>
+</li>
+<li class="nav-item">
+    <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
+</li>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h2>Admin Dashboard</h2>
+        <p>Welcome to the admin dashboard!</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h4>Manage Database</h4>
+            </div>
+            <div class="card-body">
+                <p>Use Flask-Admin to create, read, update, or delete users, classes, and enrollments.</p>
+                <a href="/admin" class="btn btn-primary">Go to Admin Panel</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h4>Clear Database</h4>
+            </div>
+            <div class="card-body">
+                <p>Delete all data in the database. <strong>This cannot be undone!</strong></p>
+                <a href="/admin/cleardb" class="btn btn-danger">Clear All Data</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

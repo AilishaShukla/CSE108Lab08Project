@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}Student Dashboard - Grades App{% endblock %}
+
+{% block nav_items %}
+<li class="nav-item">
+    <a class="nav-link" href="{{ url_for('student') }}">Dashboard</a>
+</li>
+<li class="nav-item">
+    <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
+</li>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h2>Student Dashboard</h2>
+        <p>Welcome, {{ user.name }}!</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h4>My Enrolled Classes</h4>
+            </div>
+            <div class="card-body">
+                {% if enrolled_classes %}
+                    {% for class in enrolled_classes %}
+                        <div class="mb-3">
+                            <h5>{{ class.name }}</h5>
+                            <p>{{ class.description }}</p>
+                            <small>{{ class.current_enrollment_count() }}/{{ class.capacity }} students</small>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p>You are not enrolled in any classes.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h4>Available Classes</h4>
+            </div>
+            <div class="card-body">
+                {% if classes %}
+                    {% for class in classes %}
+                        <div class="mb-3">
+                            <h5>{{ class.name }}</h5>
+                            <p>{{ class.description }}</p>
+                            <small>{{ class.current_enrollment_count() }}/{{ class.capacity }} students</small>
+                            <div class="mt-2">
+                                {% if not class.is_full() %}
+                                    <form action="{{ url_for('enroll', class_id=class.id) }}" method="post">
+                                        <button type="submit" class="btn btn-sm btn-primary">Enroll</button>
+                                    </form>
+                                {% else %}
+                                    <button class="btn btn-sm btn-secondary" disabled>Class Full</button>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p>No classes available.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
