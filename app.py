@@ -1,56 +1,91 @@
-from flask import Flask, request, jsonify, render_template, redirect, url_for
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 import os
-from flask_admin import Admin
+from flask_admin import Admin, AdminIndexView
 from flask_admin.contrib.sqla import ModelView
 from sqlalchemy.orm import foreign
-
+from flask_admin import BaseView, expose
+from flask import flash, redirect, url_for
 
 # Initialize Flask app
 app = Flask(__name__)
 
-# Configuration
-# Configure multiple databases using SQLALCHEMY_BINDS:
-# - 'users' bind for user information stored in users.db
-# - default database for classes and enrollments stored in grades.db
+# Configuration for multiple databases
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///grades.db'
 app.config['SQLALCHEMY_BINDS'] = {
     'users': 'sqlite:///users.db'
 }
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['JWT_SECRET_KEY'] = 'dev-secret-key'  # Change this in production!
-app.config['SECRET_KEY'] = 'another-dev-secret-key'  # For sessions, CSRF, etc.
+app.config['JWT_SECRET_KEY'] = 'dev-secret-key'
+app.config['SECRET_KEY'] = 'another-dev-secret-key'
 
 # Initialize extensions
 db = SQLAlchemy(app)
 CORS(app)
 jwt = JWTManager(app)
 
-# Models definition
+class ClearDatabaseView(BaseView):
+    @expose('/')
+    def index(self):
+        # Render a template with a button to clear the database
+        return self.render('clear_database.html')
+    
+    @expose('/clear', methods=['POST'])
+    def clear(self):
+        try:
+            # Delete records from Enrollment and Class tables
+            db.session.query(Enrollment).delete()
+            db.session.query(Class).delete()
+            
+            # For the User model (stored in a separate bind), drop and recreate the table
+            user_engine = db.get_engine(app, bind='users')
+            User.metadata.drop_all(user_engine)
+            User.metadata.create_all(user_engine)
+            db.session.commit()
+            flash("All data has been deleted successfully.", "success")
+        except Exception as e:
+            db.session.rollback()
+            flash("Error deleting data: " + str(e), "error")
+        return redirect(url_for('.index'))
+    
+# Custom admin index view restricting access to admin users
+class MyAdminIndexView(AdminIndexView):
+    def is_accessible(self):
+        return session.get('role') == 'admin'
+    
+    def inaccessible_callback(self, name, **kwargs):
+        return redirect(url_for('login', next=request.url))
 
-# User model stored in its own DB via bind key
+# Custom ModelView for admin-only access
+class SecureModelView(ModelView):
+    def is_accessible(self):
+        return session.get('role') == 'admin'
+    
+    def inaccessible_callback(self, name, **kwargs):
+        return redirect(url_for('login', next=request.url))
+
+# User model (stored in users.db)
 class User(db.Model):
     __bind_key__ = 'users'
     __tablename__ = 'users'
+    
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
-    # Role can be 'student', 'teacher', or 'admin'
     role = db.Column(db.String(20), nullable=False, default='student')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # Relationship with enrollments - note: foreign key reference to students must be updated
-    # If you want to link enrollments to a user in a different database, you may need custom logic.
     enrollments = db.relationship(
         'Enrollment',
         primaryjoin="User.id == foreign(Enrollment.student_id)",
         viewonly=True
     )
+    
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
         
@@ -66,7 +101,7 @@ class User(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
-# Class model stored in the default grades.db
+# Class model (stored in grades.db)
 class Class(db.Model):
     __tablename__ = 'classes'
     
@@ -76,7 +111,6 @@ class Class(db.Model):
     capacity = db.Column(db.Integer, default=30)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # Relationship with enrollments
     enrollments = db.relationship('Enrollment', backref='class_obj', lazy=True)
     
     def current_enrollment_count(self):
@@ -96,13 +130,11 @@ class Class(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
-# Enrollment model stored in grades.db
+# Enrollment model (stored in grades.db)
 class Enrollment(db.Model):
     __tablename__ = 'enrollments'
     
     id = db.Column(db.Integer, primary_key=True)
-    # The foreign key reference below assumes that if a Student is stored in users.db, you will handle
-    # data consistency. In a production system with separate databases, you might have to manage the relationship differently.
     student_id = db.Column(db.Integer, nullable=False)
     class_id = db.Column(db.Integer, db.ForeignKey('classes.id'), nullable=False)
     grade = db.Column(db.String(5), default=None)
@@ -117,55 +149,43 @@ class Enrollment(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
-# Set up Flask-Admin; note that if you wish to administer the users from the separate DB,
-# Flask-Admin will need to be configured to handle that bind.
-admin = Admin(app, name='Grades App Admin', template_mode='bootstrap3')
+# Initialize Flask-Admin (using one instance only)
+# Initialize Flask-Admin with custom index view for admins.
+admin = Admin(app, name='Grades App Admin', template_mode='bootstrap3', index_view=MyAdminIndexView())
 
-class SecureModelView(ModelView):
-    def is_accessible(self):
-        # In a real app, you would check if the current user is an admin
-        # For now, we'll leave it open for simplicity
-        return True
-    
-    def inaccessible_callback(self, name, **kwargs):
-        return redirect(url_for('login', next=request.url))
-
-# Add model views
-# For the user model, Flask-Admin will automatically use the correct bind based on __bind_key__
+# Add secure model views for CRUD operations.
 admin.add_view(SecureModelView(User, db.session))
 admin.add_view(SecureModelView(Class, db.session))
 admin.add_view(SecureModelView(Enrollment, db.session))
 
+# Add custom Clear Database view.
+admin.add_view(ClearDatabaseView(name='Clear DB', endpoint='cleardb'))
+
+
+
 # Create templates folder if it doesn't exist
 os.makedirs('templates', exist_ok=True)
 
-# API Routes
-
+# API Routes (registration and login endpoints)
 @app.route('/api/users/register', methods=['POST'])
 def api_register():
     data = request.get_json()
-    
-    # Check required fields
     if not all(k in data for k in ['name', 'email', 'password']):
         return jsonify({'message': 'Missing required fields'}), 400
-    
-    # Check if user already exists (querying the separate bind for users)
+
     if User.query.filter_by(email=data['email']).first():
         return jsonify({'message': 'User already exists'}), 400
     
-    # Create new user. Role is read from the post data; default is 'student'
-    new_user = User(
-        name=data['name'],
-        email=data['email'],
-        role=data.get('role', 'student')
-    )
-    new_user.set_password(data['password'])
+    role = data.get('role', 'student')
+    if role not in ['student', 'teacher', 'admin']:
+        role = 'student'
     
+    new_user = User(name=data['name'], email=data['email'], role=role)
+    new_user.set_password(data['password'])
     db.session.add(new_user)
     db.session.commit()
     
     access_token = create_access_token(identity=new_user.id)
-    
     return jsonify({
         'message': 'User registered successfully',
         'user': new_user.to_dict(),
@@ -175,17 +195,14 @@ def api_register():
 @app.route('/api/users/login', methods=['POST'])
 def api_login():
     data = request.get_json()
-    
     if not all(k in data for k in ['email', 'password']):
         return jsonify({'message': 'Missing email or password'}), 400
     
     user = User.query.filter_by(email=data['email']).first()
-    
     if not user or not user.check_password(data['password']):
         return jsonify({'message': 'Invalid credentials'}), 401
     
     access_token = create_access_token(identity=user.id)
-    
     return jsonify({
         'message': 'Login successful',
         'user': user.to_dict(),
@@ -193,7 +210,6 @@ def api_login():
     }), 200
 
 # Web routes for frontend
-
 @app.route('/')
 def index():
     return redirect(url_for('login'))
@@ -204,10 +220,9 @@ def login():
     if request.method == 'POST':
         email = request.form.get('email')
         password = request.form.get('password')
-        
         user = User.query.filter_by(email=email).first()
-        
         if user and user.check_password(password):
+            session['role'] = user.role
             return redirect(url_for('dashboard'))
         else:
             error = 'Invalid email or password'
@@ -221,13 +236,14 @@ def register():
         name = request.form.get('name')
         email = request.form.get('email')
         password = request.form.get('password')
+        role = request.form.get('role', 'student')
+        if role not in ['student', 'teacher', 'admin']:
+            role = 'student'
         
         if User.query.filter_by(email=email).first():
             error = 'Email already registered'
         else:
-            # Here, you could also allow role selection if needed,
-            # but be cautious with allowing users to self-assign higher roles.
-            new_user = User(name=name, email=email)
+            new_user = User(name=name, email=email, role=role)
             new_user.set_password(password)
             db.session.add(new_user)
             db.session.commit()
@@ -240,10 +256,10 @@ def dashboard():
     classes = Class.query.all()
     return render_template('dashboard.html', classes=classes)
 
-# Create both databases. When using binds, you must specify the bind key for the models.
+# Create databases and tables
 with app.app_context():
     db.create_all()
 
-
 if __name__ == '__main__':
     app.run(debug=True)
+    
