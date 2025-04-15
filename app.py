@@ -11,6 +11,7 @@ from flask_admin import Admin, AdminIndexView, BaseView, expose
 from flask_admin.contrib.sqla import ModelView
 from sqlalchemy.orm import foreign
 from wtforms import fields
+from flask import redirect, url_for
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///grades.db'
@@ -53,7 +54,7 @@ class User(db.Model):
         }
 
 class Teacher(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.Integer, primary_key=True, autoincrement=False)
     name = db.Column(db.String(100), unique=True, nullable=False)
     
 class Class(db.Model):
@@ -102,8 +103,10 @@ def create_class():
 class ClearDatabaseView(BaseView):
     @expose('/')
     def index(self):
-        return self.render('clear_database.html')
-    
+        flash("Use the inline clear database form on the Admin Dashboard.", "info")
+        return redirect(url_for('admin.index'))
+
+
     @expose('/clear', methods=['POST'])
     def clear(self):
         try:
@@ -122,6 +125,9 @@ class ClearDatabaseView(BaseView):
 class MyAdminIndexView(AdminIndexView):
     def is_accessible(self):
         return session.get('role') == 'admin'
+
+    def inaccessible_callback(self, name, **kwargs):
+        return redirect(url_for('login', next=request.url))
     
     def inaccessible_callback(self, name, **kwargs):
         return redirect(url_for('login', next=request.url))
@@ -157,7 +163,7 @@ class EnrollmentView(ModelView):
     form_excluded_columns = ['created_at']
 
 # Initialize Flask-Admin
-admin = Admin(app, name='Grades App Admin', template_mode='bootstrap3', index_view=MyAdminIndexView())
+admin = Admin(app,name='Grades App Admin',template_mode='bootstrap3',index_view=MyAdminIndexView())
 admin.add_view(UserView(User, db.session))
 admin.add_view(SecureModelView(Class, db.session))
 admin.add_view(EnrollmentView(Enrollment, db.session))
@@ -209,10 +215,18 @@ def register():
         if User.query.filter_by(email=email).first():
             error = 'Email already registered'
         else:
+            # Create a new user
             new_user = User(name=name, email=email, role=role)
             new_user.set_password(password)
             db.session.add(new_user)
             db.session.commit()
+            
+            # If registering as a teacher, also create a teacher record
+            if role == 'teacher':
+                teacher = Teacher(id=new_user.id, name=new_user.name)
+                db.session.add(teacher)
+                db.session.commit()
+                
             return redirect(url_for('login'))
     
     return render_template('register.html', error=error)
@@ -233,6 +247,11 @@ def api_register():
     new_user.set_password(data['password'])
     db.session.add(new_user)
     db.session.commit()
+    
+    if role == 'teacher':
+        teacher = Teacher(id=new_user.id, name=new_user.name)
+        db.session.add(teacher)
+        db.session.commit()
     
     access_token = create_access_token(identity=new_user.id)
     return jsonify({
@@ -293,6 +312,8 @@ def teacher():
     if 'role' not in session or session['role'] != 'teacher':
         return redirect(url_for('login'))
     user = User.query.filter_by(email=session['email']).first()
+    # Retrieve teacher record using the same user id
+    teacher = Teacher.query.get(user.id)
     classes = Class.query.filter_by(teacher_id=user.id).all()
     class_students = {}
     for c in classes:
@@ -302,7 +323,8 @@ def teacher():
             student = User.query.get(e.student_id)
             students.append({'name': student.name, 'email': student.email, 'grade': e.grade, 'enrollment_id': e.id})
         class_students[c.id] = students
-    return render_template('teacher.html', user=user, classes=classes, class_students=class_students)
+    return render_template('teacher.html', user=user, teacher=teacher, classes=classes, class_students=class_students)
+
 
 @app.route('/edit_grade/<int:enrollment_id>', methods=['POST'])
 def edit_grade(enrollment_id):
