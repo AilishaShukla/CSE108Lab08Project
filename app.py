@@ -10,6 +10,7 @@ import os
 from flask_admin import Admin, AdminIndexView, BaseView, expose
 from flask_admin.contrib.sqla import ModelView
 from sqlalchemy.orm import foreign
+from wtforms import fields
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///grades.db'
@@ -36,13 +37,6 @@ class User(db.Model):
     role = db.Column(db.String(20), nullable=False, default='student')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # Establish a read-only relationship with enrollments.
-    enrollments = db.relationship(
-        'Enrollment',
-        primaryjoin="User.id == foreign(Enrollment.student_id)",
-        viewonly=True
-    )
-    
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
         
@@ -57,7 +51,7 @@ class User(db.Model):
             'role': self.role,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
-        
+
 class Teacher(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True, nullable=False)
@@ -69,7 +63,7 @@ class Class(db.Model):
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
     capacity = db.Column(db.Integer, default=30)
-    teacher_id = db.Column(db.Integer, nullable=True)  # No foreign key constraint for flexibility
+    teacher_id = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     enrollments = db.relationship('Enrollment', backref='class_obj', lazy=True)
@@ -94,37 +88,27 @@ def create_class():
     if request.method == 'POST':
         class_name = request.form.get('class_name')
         teacher_name = request.form.get('teacher_name')
-
-        # Look up the teacher by name (make sure teacher names are unique or handle duplicates)
         teacher = Teacher.query.filter_by(name=teacher_name).first()
         if not teacher:
             flash('Teacher not found. Please check the name and try again.', 'error')
             return redirect(url_for('create_class'))
-
-        # Now create a new class with that teacher
-        new_class = Class(name=class_name, teacher=teacher)
+        new_class = Class(name=class_name, teacher_id=teacher.id)
         db.session.add(new_class)
         db.session.commit()
-
         flash('Class created successfully!', 'success')
         return redirect(url_for('admin_dashboard'))
-
     return render_template('create_class.html')
 
-# ClearDatabaseView: Provides an interface to clear all data.
 class ClearDatabaseView(BaseView):
     @expose('/')
     def index(self):
-        # Render a confirmation page for clearing the database.
         return self.render('clear_database.html')
     
     @expose('/clear', methods=['POST'])
     def clear(self):
         try:
-            # Clear enrollments and classes.
             db.session.query(Enrollment).delete()
             db.session.query(Class).delete()
-            # For the user database, drop and recreate tables.
             user_engine = db.get_engine(app, bind='users')
             User.metadata.drop_all(user_engine)
             User.metadata.create_all(user_engine)
@@ -135,16 +119,13 @@ class ClearDatabaseView(BaseView):
             flash("Error deleting data: " + str(e), "error")
         return redirect(url_for('.index'))
 
-# Custom Admin Index View: Only accessible to admin users.
 class MyAdminIndexView(AdminIndexView):
     def is_accessible(self):
-        # Ensure that only an admin (as per session) can access admin pages.
         return session.get('role') == 'admin'
     
     def inaccessible_callback(self, name, **kwargs):
         return redirect(url_for('login', next=request.url))
 
-# SecureModelView: Secures model views for admin access.
 class SecureModelView(ModelView):
     def is_accessible(self):
         return session.get('role') == 'admin'
@@ -152,16 +133,34 @@ class SecureModelView(ModelView):
     def inaccessible_callback(self, name, **kwargs):
         return redirect(url_for('login', next=request.url))
 
-# Initialize Flask-Admin
-admin = Admin(app,
-              name='Grades App Admin',
-              template_mode='bootstrap3',
-              index_view=MyAdminIndexView())
+class UserView(ModelView):
+    def is_accessible(self):
+        return session.get('role') == 'admin'
+    
+    def inaccessible_callback(self, name, **kwargs):
+        return redirect(url_for('login', next=request.url))
+    
+    form_columns = ['name', 'email', 'password_hash', 'role']
+    form_excluded_columns = ['created_at']
+    form_overrides = {
+        'password_hash': fields.StringField,
+    }
 
-# Register models with Flask-Admin.
-admin.add_view(SecureModelView(User, db.session))
+class EnrollmentView(ModelView):
+    def is_accessible(self):
+        return session.get('role') == 'admin'
+    
+    def inaccessible_callback(self, name, **kwargs):
+        return redirect(url_for('login', next=request.url))
+    
+    form_columns = ['student_id', 'class_id', 'grade']
+    form_excluded_columns = ['created_at']
+
+# Initialize Flask-Admin
+admin = Admin(app, name='Grades App Admin', template_mode='bootstrap3', index_view=MyAdminIndexView())
+admin.add_view(UserView(User, db.session))
 admin.add_view(SecureModelView(Class, db.session))
-admin.add_view(SecureModelView(Enrollment, db.session))
+admin.add_view(EnrollmentView(Enrollment, db.session))
 admin.add_view(ClearDatabaseView(name='Clear DB', endpoint='cleardb'))
 
 os.makedirs('templates', exist_ok=True)
@@ -172,8 +171,8 @@ def index():
 
 @app.route('/logout')
 def logout():
-    session.pop('role', None)
-    session.pop('email', None)
+    session.clear()
+    flash('You have been logged out.', 'success')
     return redirect(url_for('login'))
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -191,11 +190,10 @@ def login():
             elif user.role == 'teacher':
                 return redirect(url_for('teacher'))
             elif user.role == 'admin':
-                return redirect(url_for('admin.index'))  # Corrected endpoint
+                return redirect(url_for('admin.index'))
         else:
             error = 'Invalid email or password'
     return render_template('login.html', error=error)
-
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -224,7 +222,6 @@ def api_register():
     data = request.get_json()
     if not all(k in data for k in ['name', 'email', 'password']):
         return jsonify({'message': 'Missing required fields'}), 400
-
     if User.query.filter_by(email=data['email']).first():
         return jsonify({'message': 'User already exists'}), 400
     
@@ -273,7 +270,6 @@ def student():
     classes = Class.query.all()
     return render_template('student.html', user=user, classes=classes, enrolled_classes=enrolled_classes)
 
-# Enroll a student into a class.
 @app.route('/enroll/<int:class_id>', methods=['POST'])
 def enroll(class_id):
     if 'role' not in session or session['role'] != 'student':
@@ -308,7 +304,6 @@ def teacher():
         class_students[c.id] = students
     return render_template('teacher.html', user=user, classes=classes, class_students=class_students)
 
-# Edit a student's grade (Teacher only).
 @app.route('/edit_grade/<int:enrollment_id>', methods=['POST'])
 def edit_grade(enrollment_id):
     if 'role' not in session or session['role'] != 'teacher':
@@ -328,15 +323,15 @@ def edit_grade(enrollment_id):
         flash('Invalid grade! Use A, B, C, D, F, or leave blank.', 'error')
     return redirect(url_for('teacher'))
 
-# Admin Dashboard route: For now, simply renders the admin template.
 @app.route('/admin')
 def admin_dashboard():
     if 'role' not in session or session['role'] != 'admin':
         return redirect(url_for('login'))
     return render_template('admin.html')
 
+# Initialize the database without dropping existing tables
 with app.app_context():
-    db.drop_all()
+    # Removed db.drop_all() to preserve data between restarts
     db.create_all()
 
 if __name__ == '__main__':
