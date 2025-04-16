@@ -82,7 +82,11 @@ class Enrollment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.Integer, nullable=False)
     class_id = db.Column(db.Integer, db.ForeignKey('classes.id'), nullable=False)
+
     grade = db.Column(db.Float, default=None)  # Changed from String to Float for numeric grades
+
+    grade = db.Column(db.Integer, nullable=True)  # Changed to Integer for numerical grades (0-100)
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 @app.route('/create_class', methods=['GET', 'POST'])
@@ -334,6 +338,7 @@ def edit_grade(enrollment_id):
     if class_obj.teacher_id != user.id:
         flash('Unauthorized access!', 'error')
         return redirect(url_for('teacher'))
+
     
     grade_input = request.form.get('grade')
     if grade_input == '':
@@ -354,6 +359,24 @@ def edit_grade(enrollment_id):
     
     db.session.commit()
     flash('Grade updated!', 'success')
+
+    grade = request.form.get('grade')
+    if grade == '':
+        enrollment.grade = None
+        db.session.commit()
+        flash('Grade updated!', 'success')
+    else:
+        try:
+            grade = int(grade)
+            if 0 <= grade <= 100:
+                enrollment.grade = grade
+                db.session.commit()
+                flash('Grade updated!', 'success')
+            else:
+                flash('Invalid grade! Grade must be between 0 and 100.', 'error')
+        except ValueError:
+            flash('Invalid grade! Grade must be a number between 0 and 100 or left blank.', 'error')
+
     return redirect(url_for('teacher'))
 
 @app.route('/admin')

@@ -50,11 +50,11 @@
                                             <tr>
                                                 <td>{{ student.name }}</td>
                                                 <td>{{ student.email }}</td>
-                                                <td>{{ student.grade or 'Not graded' }}</td>
+                                                <td>{{ student.grade if student.grade is not none else 'Not graded' }}</td>
                                                 <td>
                                                     <form action="{{ url_for('edit_grade', enrollment_id=student.enrollment_id) }}" method="post">
                                                         <div class="input-group input-group-sm">
-                                                            <input type="text" class="form-control" name="grade" value="{{ student.grade or '' }}" placeholder="A, B, C, D, F">
+                                                            <input type="number" class="form-control" name="grade" value="{{ student.grade if student.grade is not none else '' }}" placeholder="0-100" min="0" max="100">
                                                             <button type="submit" class="btn btn-primary">Update</button>
                                                         </div>
                                                     </form>
