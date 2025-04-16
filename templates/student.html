@@ -20,6 +20,7 @@
 </div>
 
 <div class="row">
+    <!-- Enrolled Classes Section -->
     <div class="col-md-6">
         <div class="card mb-4">
             <div class="card-header">
@@ -27,11 +28,22 @@
             </div>
             <div class="card-body">
                 {% if enrolled_classes %}
-                    {% for class in enrolled_classes %}
+                    {% for enrollment in enrolled_classes %}
                         <div class="mb-3">
-                            <h5>{{ class.name }}</h5>
-                            <p>{{ class.description }}</p>
-                            <small>{{ class.current_enrollment_count() }}/{{ class.capacity }} students</small>
+                            <h5>{{ enrollment.class.name }}</h5>
+                            <p>{{ enrollment.class.description }}</p>
+                            <small>{{ enrollment.class.current_enrollment_count() }}/{{ enrollment.class.capacity }} students</small>
+                            <p>
+                                <strong>Grade:</strong>
+                                {% if enrollment.grade is not none %}
+                                    {{ enrollment.grade }}
+                                {% else %}
+                                    Not graded yet
+                                {% endif %}
+                            </p>
+                            <form action="{{ url_for('remove_enrollment', enrollment_id=enrollment.enrollment_id) }}" method="post">
+                                <button type="submit" class="btn btn-sm btn-danger">Remove Course</button>
+                            </form>
                         </div>
                     {% endfor %}
                 {% else %}
@@ -41,6 +53,7 @@
         </div>
     </div>
     
+    <!-- Available Classes Section -->
     <div class="col-md-6">
         <div class="card">
             <div class="card-header">

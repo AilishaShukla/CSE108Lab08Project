@@ -287,9 +287,30 @@ def student():
     enrolled_classes = []
     if user:
         enrollments = Enrollment.query.filter_by(student_id=user.id).all()
-        enrolled_classes = [Class.query.get(e.class_id) for e in enrollments]
+        for enrollment in enrollments:
+            class_obj = Class.query.get(enrollment.class_id)
+            enrolled_classes.append({
+                "class": class_obj,
+                "grade": enrollment.grade,
+                "enrollment_id": enrollment.id,
+            })
     classes = Class.query.all()
     return render_template('student.html', user=user, classes=classes, enrolled_classes=enrolled_classes)
+
+@app.route('/remove_enrollment/<int:enrollment_id>', methods=['POST'])
+def remove_enrollment(enrollment_id):
+    if 'role' not in session or session['role'] != 'student':
+        return redirect(url_for('login'))
+    enrollment = Enrollment.query.get_or_404(enrollment_id)
+    user = User.query.filter_by(email=session['email']).first()
+    # Ensure the enrollment belongs to the logged-in student
+    if enrollment.student_id != user.id:
+        flash("Unauthorized access!", "error")
+        return redirect(url_for('student'))
+    db.session.delete(enrollment)
+    db.session.commit()
+    flash("Course removed successfully!", "success")
+    return redirect(url_for('student'))
 
 @app.route('/enroll/<int:class_id>', methods=['POST'])
 def enroll(class_id):
