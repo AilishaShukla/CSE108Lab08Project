@@ -75,13 +75,14 @@ class Class(db.Model):
     def is_full(self):
         return self.current_enrollment_count() >= self.capacity
 
+# --- Modified Enrollment Model ---
 class Enrollment(db.Model):
     __tablename__ = 'enrollments'
     
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.Integer, nullable=False)
     class_id = db.Column(db.Integer, db.ForeignKey('classes.id'), nullable=False)
-    grade = db.Column(db.String(5), default=None)
+    grade = db.Column(db.Float, default=None)  # Changed from String to Float for numeric grades
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 @app.route('/create_class', methods=['GET', 'POST'])
@@ -129,9 +130,6 @@ class MyAdminIndexView(AdminIndexView):
     def inaccessible_callback(self, name, **kwargs):
         return redirect(url_for('login', next=request.url))
     
-    def inaccessible_callback(self, name, **kwargs):
-        return redirect(url_for('login', next=request.url))
-
 class SecureModelView(ModelView):
     def is_accessible(self):
         return session.get('role') == 'admin'
@@ -163,7 +161,7 @@ class EnrollmentView(ModelView):
     form_excluded_columns = ['created_at']
 
 # Initialize Flask-Admin
-admin = Admin(app,name='Grades App Admin',template_mode='bootstrap3',index_view=MyAdminIndexView())
+admin = Admin(app, name='Grades App Admin', template_mode='bootstrap3', index_view=MyAdminIndexView())
 admin.add_view(UserView(User, db.session))
 admin.add_view(SecureModelView(Class, db.session))
 admin.add_view(EnrollmentView(Enrollment, db.session))
@@ -325,7 +323,7 @@ def teacher():
         class_students[c.id] = students
     return render_template('teacher.html', user=user, teacher=teacher, classes=classes, class_students=class_students)
 
-
+# --- Modified Edit Grade Route ---
 @app.route('/edit_grade/<int:enrollment_id>', methods=['POST'])
 def edit_grade(enrollment_id):
     if 'role' not in session or session['role'] != 'teacher':
@@ -336,13 +334,26 @@ def edit_grade(enrollment_id):
     if class_obj.teacher_id != user.id:
         flash('Unauthorized access!', 'error')
         return redirect(url_for('teacher'))
-    grade = request.form.get('grade')
-    if grade in ['A', 'B', 'C', 'D', 'F', '']:
-        enrollment.grade = grade or None
-        db.session.commit()
-        flash('Grade updated!', 'success')
+    
+    grade_input = request.form.get('grade')
+    if grade_input == '':
+        # Allow clearing the grade
+        enrollment.grade = None
     else:
-        flash('Invalid grade! Use A, B, C, D, F, or leave blank.', 'error')
+        try:
+            numeric_grade = float(grade_input)
+            # Validate the grade range (for example, 0-100)
+            if 0 <= numeric_grade <= 100:
+                enrollment.grade = numeric_grade
+            else:
+                flash('Invalid grade! Enter a number between 0 and 100.', 'error')
+                return redirect(url_for('teacher'))
+        except ValueError:
+            flash('Invalid grade! Please enter a valid number.', 'error')
+            return redirect(url_for('teacher'))
+    
+    db.session.commit()
+    flash('Grade updated!', 'success')
     return redirect(url_for('teacher'))
 
 @app.route('/admin')
